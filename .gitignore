@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# images produites par demo.py et live.py (se regenerent)
+perception/out/
+
+# LaTeX (fichiers de compilation)
+*.aux
+*.log
+*.fls
+*.fdb_latexmk
+*.xdv
+*.toc
+*.synctex.gz
+
+# macOS
+.DS_Store

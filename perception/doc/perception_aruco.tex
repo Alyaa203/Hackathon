@@ -1,0 +1,1217 @@
+% Perception par marqueurs ArUco -- Rock Climbing Robots
+% Compilation : latexmk -xelatex perception_aruco.tex   (XeLaTeX : polices du Mac)
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[a4paper,margin=2.3cm,headheight=14pt]{geometry}
+\usepackage{fontspec}
+\setmainfont{Charter}
+\setsansfont{Avenir Next}
+\setmonofont{Menlo}[Scale=0.84]
+\usepackage[french]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs,array,tabularx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{caption,subcaption}
+\usepackage{float}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{microtype}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,fit,backgrounds,shapes.geometric,babel,decorations.pathreplacing}
+\usepackage[most]{tcolorbox}
+\usepackage[hidelinks]{hyperref}
+
+% ---- couleurs ------------------------------------------------------------------------------------------
+\definecolor{accent}{HTML}{1F5FA8}
+\definecolor{wallc}{HTML}{E2C99A}
+\definecolor{codebg}{HTML}{F4F6F8}
+\definecolor{okgreen}{HTML}{2E8B57}
+\definecolor{axx}{HTML}{D62728}
+\definecolor{axy}{HTML}{2CA02C}
+\definecolor{axz}{HTML}{1F77B4}
+
+% ---- mise en page ----------------------------------------------------------------------------------------
+\titleformat*{\section}{\Large\bfseries\sffamily\color{accent}}
+\titleformat*{\subsection}{\large\bfseries\sffamily}
+\titleformat*{\subsubsection}{\normalsize\bfseries\sffamily}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\sffamily Rock Climbing Robots --- Perception ArUco}
+\fancyhead[R]{\small\sffamily\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\setlength{\parskip}{0.45em}
+\setlength{\parindent}{0pt}
+\captionsetup{font=small,labelfont={bf,sf}}
+\setlist{itemsep=0.15em,topsep=0.3em}
+
+% ---- code ------------------------------------------------------------------------------------------------
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\lstdefinestyle{base}{basicstyle=\ttfamily\small, backgroundcolor=\color{codebg}, frame=single,
+  rulecolor=\color{gray!40}, framesep=4pt, xleftmargin=6pt, xrightmargin=6pt, columns=fullflexible,
+  keepspaces=true, showstringspaces=false, breaklines=true, aboveskip=0.6em, belowskip=0.6em,
+  commentstyle=\color{gray}, keywordstyle=\color{accent}\bfseries, stringstyle=\color{okgreen}}
+\lstdefinestyle{py}{style=base, language=Python}
+\lstdefinestyle{sh}{style=base, language=bash, keywordstyle=\color{black}}
+\lstdefinestyle{out}{style=base, backgroundcolor=\color{black!85}, basicstyle=\ttfamily\scriptsize\color{white},
+  rulecolor=\color{black}}
+\lstset{style=base}
+
+% ---- encadrés ----------------------------------------------------------------------------------------------
+\newtcolorbox{retenir}[1][À retenir]{colback=accent!5, colframe=accent, fonttitle=\bfseries\sffamily,
+  title=#1, arc=2pt, boxrule=0.8pt, breakable}
+\newtcolorbox{attention}[1][Attention]{colback=orange!6, colframe=orange!80!black, fonttitle=\bfseries\sffamily,
+  title=#1, arc=2pt, boxrule=0.8pt, breakable}
+
+% ---- styles TikZ -------------------------------------------------------------------------------------------
+\tikzset{
+  box/.style={draw=#1!70!black, fill=#1!10, rounded corners=2pt, align=center, font=\small,
+              minimum height=10mm, text width=36mm, inner sep=3pt},
+  box/.default=gray,
+  arr/.style={-{Stealth[length=2.4mm]}, thick, gray!60!black},
+  ax/.style={-{Stealth[length=2mm]}, very thick},
+}
+
+\begin{document}
+
+% =========================================================================================================
+\begin{titlepage}
+\centering
+\vspace*{2.5cm}
+{\sffamily\color{accent}\Huge\bfseries Perception par marqueurs ArUco\par}
+\vspace{0.6cm}
+{\sffamily\Large Hackathon Rock Climbing Robots --- règlement v1.1, section 6.1\par}
+\vspace{1.2cm}
+{\large Où sont les caméras ? Où est le robot ?\\[0.2em]
+Ce qui a été fait, comment ça marche, comment s'en servir\par}
+\vspace{1.5cm}
+\includegraphics[width=0.36\textwidth]{img/scene.png}\hspace{0.04\textwidth}%
+\includegraphics[width=0.36\textwidth]{img/robot_back.png}
+\vfill
+{\sffamily 29 octobre 2026\par}
+\vspace{0.3cm}
+{\small\color{gray} Document de travail de l'équipe. Code dans \code{Hackathon/perception/}.\par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% =========================================================================================================
+\section{En bref}
+
+Le règlement (section 6.1) propose un mode de perception \emph{avec marqueurs ArUco} : quatre marqueurs
+fixés aux coins du mur donnent la position des caméras, et un cinquième marqueur, collé sur le robot, donne
+la position du robot. C'est ce mode qui a été programmé et testé dans le simulateur MuJoCo des
+organisateurs.
+
+\begin{retenir}[Ce qui marche aujourd'hui]
+\begin{enumerate}
+  \item \textbf{Les caméras se repèrent seules} : dans chaque image, le code trouve les marqueurs ID~1 à 4
+        des coins du mur et en déduit où est la caméra et où elle regarde, \emph{sans qu'on le lui dise}.
+        Précision : environ \textbf{2~mm} sur la position de la caméra, \textbf{0,03°} sur son orientation.
+  \item \textbf{Le robot porte un marqueur ID~5} sur le dos (plaque de 100~×~100~mm), ajouté au modèle
+        du simulateur.
+  \item \textbf{Le robot est localisé} en croisant les deux caméras : erreur moyenne de
+        \textbf{1,2 à 3,3~mm} sur la position du tronc, sur tout le mur (bas, milieu, haut), sur les murs
+        N1, N2, N3, et pour des caméras placées au hasard.
+  \item \textbf{Le même code servira sur le vrai robot} : un script (\code{live.py}) lit les caméras USB,
+        se calibre sur les marqueurs du mur et affiche la position du robot en direct.
+\end{enumerate}
+\end{retenir}
+
+\paragraph{Ce qui n'est pas encore fait.} Le robot ne grimpe pas encore : la démonstration le fait seulement
+se balancer sur ses prises de départ pour vérifier que le suivi le suit. Il reste à détecter les prises dans
+les images, puis à écrire le programme de grimpe (section~\ref{sec:suite}).
+
+\paragraph{Les trois commandes à connaître} (à lancer depuis le dossier \code{Hackathon/simulator}) :
+
+\begin{lstlisting}[style=sh]
+# 1. demonstration dans le simulateur (mur N1, N2 ou N3)
+uv run --with opencv-contrib-python python ../perception/demo.py N1
+# 2. la meme chose avec les cameras placees au hasard (le nombre change le placement)
+uv run --with opencv-contrib-python python ../perception/demo.py N2 --shuffle 3
+# 3. le jour J : les deux cameras USB (gauche puis droite)
+uv run --with opencv-contrib-python python ../perception/live.py 0 1
+\end{lstlisting}
+
+% =========================================================================================================
+\section{Le contexte}
+
+\subsection{Ce que dit le règlement}
+
+\begin{itemize}
+  \item \textbf{Section 5.1} --- deux caméras USB par mur (Intel RealSense D435i), une de chaque côté,
+        \emph{fournies et placées par les organisateurs}. Les équipes branchent les câbles sur leur
+        ordinateur et récupèrent les images. \textbf{Seule l'image couleur (RGB) est autorisée} (pas la
+        profondeur).
+  \item \textbf{Section 5.2} --- quatre marqueurs aux coins du mur, IDs 1 à 4, dictionnaire
+        \code{DICT_4X4_50}. Chacun : code noir de 100~×~100~mm entouré d'une bordure blanche de 18~mm
+        (plaque de 136~×~136~mm), le coin extérieur de la plaque sur le coin du mur. L'équipe peut ajouter un
+        marqueur \textbf{ID~5 sur son robot}, où elle veut, de la taille qu'elle veut.
+  \item \textbf{Section 6.1} --- avec les marqueurs, les marqueurs du mur donnent la pose (position +
+        orientation) des caméras par rapport au mur ; le robot est suivi grâce à son marqueur ID~5 (ou
+        détecté autrement).
+  \item \textbf{Section 8} --- utiliser les marqueurs multiplie le temps par \textbf{1,25} (le mode sans
+        marqueur, plus difficile, garde ×1). La hauteur atteinte compte avant le temps : un robot fiable
+        avec marqueurs bat un robot sans marqueur qui tombe.
+\end{itemize}
+
+\subsection{Le simulateur}
+
+Le simulateur des organisateurs (\code{rock-climbing-robots/simulator}, paquet Python \code{climbing_sim})
+contient le robot Microban et ses 19 moteurs, le mur de 800~×~1400~mm avec ses prises, les quatre
+marqueurs des coins et deux caméras simulées qui ont les caractéristiques des D435i. Il ne contient pas de
+marqueur sur le robot : on l'ajoute nous-mêmes (section~\ref{sec:marqueur}).
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[x={(4.4cm,0cm)}, y={(0cm,3.6cm)}, z={(-0.5cm,-1.9cm)}, line join=round, font=\small]
+  % mur
+  \fill[wallc] (0,0,0) -- (0.8,0,0) -- (0.8,1.4,0) -- (0,1.4,0) -- cycle;
+  \draw[thick, brown!60!black] (0,0,0) -- (0.8,0,0) -- (0.8,1.4,0) -- (0,1.4,0) -- cycle;
+  % prises du mur N1
+  \foreach \r in {2,7,...,87}{\foreach \c in {18,21,26,29}{
+      \fill[orange!85!red] ({0.0325+\c*0.015},{-0.004+\r*0.015},0) circle (0.55pt);}}
+  % marqueurs des coins
+  \foreach \x/\y/\id in {0/1.264/1, 0.664/1.264/2, 0/0/3, 0.664/0/4}{
+    \fill[white, draw=gray] (\x,\y,0) -- ++(0.136,0,0) -- ++(0,0.136,0) -- ++(-0.136,0,0) -- cycle;
+    \fill[black] ({\x+0.018},{\y+0.018},0) -- ++(0.1,0,0) -- ++(0,0.1,0) -- ++(-0.1,0,0) -- cycle;
+    \node[white, font=\scriptsize\bfseries\sffamily] at ({\x+0.068},{\y+0.068},0) {\id};}
+  % robot (schématique)
+  \draw[gray!60!black, line width=1.6pt] (0.3475,0.026,0.03) -- (0.36,0.17,0.12) (0.4225,0.026,0.03) -- (0.41,0.17,0.12);
+  \draw[gray!60!black, line width=1.6pt] (0.3025,0.33,0.03) -- (0.34,0.27,0.12) (0.4675,0.33,0.03) -- (0.43,0.27,0.12);
+  \fill[gray!55, draw=gray!40!black] (0.335,0.17,0.12) -- (0.435,0.17,0.12) -- (0.435,0.29,0.12) -- (0.335,0.29,0.12) -- cycle;
+  \fill[white, draw=gray] (0.335,0.172,0.165) -- (0.435,0.172,0.165) -- (0.435,0.272,0.165) -- (0.335,0.272,0.165) -- cycle;
+  \fill[black] (0.345,0.182,0.165) -- (0.425,0.182,0.165) -- (0.425,0.262,0.165) -- (0.345,0.262,0.165) -- cycle;
+  \node[white, font=\tiny\bfseries\sffamily] at (0.385,0.222,0.165) {5};
+  % caméras et rayons
+  \foreach \cx/\nm in {-0.15/gauche, 0.95/droite}{
+    \foreach \tx/\ty in {0.068/1.332, 0.732/1.332, 0.068/0.068, 0.732/0.068}{
+      \draw[orange!80!black, densely dashed, opacity=0.55] (\cx,0.9,2.4) -- (\tx,\ty,0);}
+    \draw[okgreen, thick, opacity=0.85] (\cx,0.9,2.4) -- (0.385,0.222,0.165);
+    \fill[black!80] (\cx,0.9,2.4) ++(-0.045,-0.03) rectangle ++(0.09,0.06);
+    \node[below=1mm, align=center, font=\footnotesize] at (\cx,0.9,2.4) {caméra\\ \nm};}
+  % repère du mur
+  \draw[ax, axx] (0,0,0) -- (0.2,0,0) node[below right=-1mm, font=\footnotesize] {$x$};
+  \draw[ax, axy] (0,0,0) -- (0,0.22,0) node[left, font=\footnotesize] {$y$};
+  \draw[ax, axz] (0,0,0) -- (0,0,0.3) node[left, font=\footnotesize] {$z$};
+  \node[anchor=east, align=right, font=\footnotesize] at (-0.07,0.55,0) {repère du mur\\origine : coin\\bas-gauche};
+  % légende
+  \node[anchor=west, align=left, font=\footnotesize] at (0.9,1.2,0)
+     {\textcolor{orange!80!black}{- - -} vers les marqueurs 1--4\\[-1pt] \hspace{1.3em}(pose des caméras)\\[2pt]
+      \textcolor{okgreen}{\rule[0.5ex]{1.4em}{1pt}} vers le marqueur 5\\[-1pt] \hspace{1.3em}(pose du robot)};
+\end{tikzpicture}
+\caption{Le dispositif (schéma, mur N1). Les deux caméras voient les quatre marqueurs des coins, ce qui
+leur permet de se situer ; elles voient aussi le marqueur ID~5 sur le dos du robot, ce qui permet de situer
+le robot.}
+\label{fig:dispositif}
+\end{figure}
+
+\subsection{Organisation des dossiers}
+
+Tout est dans \code{~/Desktop/Hackathon}. Le dépôt des organisateurs (\code{simulator}) n'est
+\textbf{pas modifié} : notre code est à part, dans \code{perception}.
+
+\begin{lstlisting}
+Hackathon/
+|-- simulator/          depot des organisateurs (climbing_sim) -- on ne le modifie pas
+|-- microban/           programme du vrai robot (Rhoban, branche dev_v2)
+`-- perception/         NOTRE CODE
+    |-- perception.py     le traitement : detection, pose des cameras, pose du robot
+    |-- robot_marker.py   le marqueur ID 5 sur le robot (simulateur) + ses dimensions
+    |-- demo.py           demonstration dans le simulateur, comparee a la verite
+    |-- live.py           le jour J : les vraies cameras USB (ou des images)
+    |-- out/              images annotees produites par demo.py et live.py
+    `-- doc/              ce document (perception_aruco.tex) et ses images
+\end{lstlisting}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=9mm and 7mm]
+  \node[box=accent] (demo) {\code{demo.py}\\\footnotesize démonstration (simulateur)};
+  \node[box=accent, right=24mm of demo] (live) {\code{live.py}\\\footnotesize vraies caméras / images};
+  \node[box=okgreen, below=of demo] (perc) {\code{perception.py}\\\footnotesize traitement d'image};
+  \node[box=okgreen, below=of live] (mark) {\code{robot_marker.py}\\\footnotesize marqueur ID 5};
+  \node[box=gray, below=of perc, xshift=-14mm] (cv) {OpenCV\\\footnotesize \code{cv2.aruco}, PnP};
+  \node[box=gray, below=of mark, xshift=-12mm] (sim) {\code{climbing_sim}\\\footnotesize simulateur, dimensions};
+  \node[box=gray, right=6mm of sim] (mj) {MuJoCo\\\footnotesize physique, rendu};
+  \draw[arr] (demo) -- (perc);
+  \draw[arr] (demo) -- (mark);
+  \draw[arr] (live) -- (perc);
+  \draw[arr] (live) -- node[right, font=\scriptsize, fill=white, inner sep=1pt]{constantes} (mark);
+  \draw[arr] (perc) -- (cv);
+  \draw[arr] (perc) -- node[pos=0.62, above, sloped, font=\scriptsize, fill=white, inner sep=1pt]{dimensions du mur} (sim);
+  \draw[arr] (mark) -- (sim);
+  \draw[arr] (mark) -- (mj);
+  \draw[arr] (mark.south west) -- (cv);
+\end{tikzpicture}
+\caption{Qui utilise quoi. \code{perception.py} ne dépend que d'OpenCV et des dimensions du mur : il
+fonctionne aussi bien sur des images simulées que sur des images réelles.}
+\end{figure}
+
+\subsection{Installation}
+
+Rien de plus que ce qui était déjà installé pour le simulateur (\code{uv}, \code{git-lfs}). OpenCV n'est
+\emph{pas} ajouté au projet du simulateur (pour ne pas modifier le dépôt des organisateurs) : on le demande
+à chaque lancement avec \code{--with}. \code{uv} le télécharge la première fois (une minute) puis le garde en
+cache.
+
+\begin{lstlisting}[style=sh]
+cd ~/Desktop/Hackathon/simulator
+uv run --with opencv-contrib-python python ../perception/demo.py N1
+\end{lstlisting}
+
+\begin{attention}[Le message « VIRTUAL\_ENV ... does not match »]
+Il apparaît parce que l'environnement Python \code{tf_env} est activé dans ton terminal. Il est sans
+conséquence (\code{uv} utilise bien l'environnement du simulateur). Pour le faire disparaître :
+\code{deactivate}.
+\end{attention}
+
+% =========================================================================================================
+\section{Les repères}
+\label{sec:reperes}
+
+Toute la difficulté de la localisation est de passer d'un repère à l'autre. Il y en a cinq.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\textwidth}{>{\bfseries}l X l}
+\toprule
+Repère & Axes & Utilisé par \\
+\midrule
+Mur $\mathcal{W}$ & origine au coin bas-gauche de la face avant ; $x$ à droite, $y$ vers le haut,
+  $z$ sort du mur vers le grimpeur & marqueurs, caméras, résultats \\
+Monde (MuJoCo) & même origine ; $x$ à droite, $y$ \emph{entre dans} le mur, $z$ vers le haut & simulateur, planification \\
+Caméra $\mathcal{C}$ & convention OpenCV : $x$ à droite de l'image, $y$ vers le bas, $z$ devant la caméra & OpenCV \\
+Marqueur $\mathcal{M}$ & centre du code ; $x$ à droite, $y$ vers le haut (vu de face), $z$ sort du marqueur & OpenCV \\
+Tronc $\mathcal{T}$ & $x$ devant le robot (vers le mur quand il grimpe), $y$ à sa gauche, $z$ le long du dos & robot, IMU \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Une \emph{pose} (position + orientation) d'un repère $\mathcal{B}$ dans un repère $\mathcal{A}$ s'écrit
+avec une matrice de rotation $R_{AB}$ ($3\times3$) et une position $t_{AB}$ : un point de coordonnées
+$P_B$ dans $\mathcal{B}$ a pour coordonnées dans $\mathcal{A}$
+\[
+  P_A = R_{AB}\,P_B + t_{AB}.
+\]
+Les \emph{colonnes} de $R_{AB}$ sont les axes de $\mathcal{B}$ exprimés dans $\mathcal{A}$. Pour passer du
+mur au monde du simulateur, la rotation est fixe :
+\[
+  R_{\text{monde},\mathcal{W}} = \begin{pmatrix} 1 & 0 & 0\\ 0 & 0 & -1\\ 0 & 1 & 0\end{pmatrix}
+  \qquad (x_{\text{monde}} = x,\quad y_{\text{monde}} = -z,\quad z_{\text{monde}} = y).
+\]
+C'est ce que fait la fonction \code{to_world()}.
+
+% =========================================================================================================
+\section{Les marqueurs ArUco}
+
+\subsection{Qu'est-ce qu'un marqueur ArUco ?}
+
+Un marqueur ArUco est un carré noir et blanc conçu pour être retrouvé facilement par un ordinateur. Pour le
+dictionnaire \code{DICT_4X4_50} : une grille de $6\times6$ cases dont la couronne extérieure est noire et dont
+les $4\times4$ cases intérieures codent un numéro (ID de 0 à 49). Autour, une bordure blanche le détache du
+fond. Le motif n'est pas symétrique : en le lisant, OpenCV sait \emph{quel} marqueur il voit et \emph{dans
+quel sens} il est tourné, donc il peut numéroter ses quatre coins toujours dans le même ordre.
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{0.46\textwidth}
+\centering
+\begin{tikzpicture}[scale=0.62, font=\footnotesize]
+  \fill[white, draw=gray] (-0.75,-0.75) rectangle (6.75,6.75);
+  \fill[black] (0,0) rectangle (6,6);
+  \foreach \c/\r in {2/1,3/1,4/1, 1/2,4/2, 1/3,2/3, 1/4,2/4,4/4}{\fill[white] (\c,5-\r) rectangle ++(1,1);}
+  \draw[gray!60, very thin] (0,0) grid (6,6);
+  \foreach \p/\l/\a in {{(0,6)}/0/above left, {(6,6)}/1/above right, {(6,0)}/2/below right, {(0,0)}/3/below left}{
+    \fill[red] \p circle (3.2pt); \node[\a=1pt, text=red, font=\small\bfseries] at \p {\l};}
+  \draw[ax, axx] (3,3) -- (4.6,3) node[right, fill=white, inner sep=1pt] {$x$};
+  \draw[ax, axy] (3,3) -- (3,4.6) node[above, fill=white, inner sep=1pt] {$y$};
+  \fill[axz] (3,3) circle (4pt); \fill[white] (3,3) circle (1.6pt);
+  \node[below right=-1pt, text=axz, fill=white, inner sep=1pt] at (3.1,2.9) {$z$};
+  \draw[decorate, decoration={brace, amplitude=4pt, mirror}] (0,-1) -- (6,-1) node[midway, below=4pt] {code : 80 mm};
+  \draw[decorate, decoration={brace, amplitude=3pt}] (-1,-0.75) -- (-1,0) node[midway, left=4pt] {10 mm};
+\end{tikzpicture}
+\caption{Le marqueur ID~5 du robot. En rouge, l'ordre des coins rendu par OpenCV ; au centre, le repère du
+marqueur ($z$ sort de la page).}
+\end{subfigure}\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+\centering
+\begin{tikzpicture}[x=0.33mm, y=0.33mm, font=\footnotesize]
+  \fill[wallc] (0,0) rectangle (190,175);
+  \foreach \i in {0,...,11}{\foreach \j in {0,...,10}{\fill[brown!70!black] (17.5+\i*15,10+\j*15) circle (0.5);}}
+  \fill[white, draw=gray] (0,0) rectangle (136,136);
+  \fill[black] (18,18) rectangle (118,118);
+  \fill[white] (43,43) rectangle (93,93);
+  \node[font=\small\bfseries\sffamily, black] at (68,68) {3};
+  \foreach \p/\l/\a in {{(18,118)}/0/above left, {(118,118)}/1/above right, {(118,18)}/2/below right, {(18,18)}/3/below left}{
+    \fill[red] \p circle (2.2); \node[\a=0pt, text=red, font=\scriptsize\bfseries] at \p {\l};}
+  \draw[thick, brown!50!black] (0,175) -- (0,0) -- (190,0);
+  \draw[ax, axx] (0,0) -- (40,0) node[below] {$x$};
+  \draw[ax, axy] (0,0) -- (0,40) node[left] {$y$};
+  \draw[<->] (0,-12) -- (136,-12) node[midway, below] {136};
+  \draw[<->] (0,-24) -- (18,-24) node[midway, below] {18};
+  \draw[<->] (18,-24) -- (118,-24) node[midway, below] {100};
+  \node[align=left, anchor=west, font=\scriptsize, fill=white, rounded corners=1pt, inner sep=2pt] at (140,60)
+    {coins du code\\(mm, repère mur) :\\0 : (18, 118)\\1 : (118, 118)\\2 : (118, 18)\\3 : (18, 18)};
+\end{tikzpicture}
+\caption{Le marqueur ID~3 au coin bas-gauche du mur (motif simplifié). Ses coins ont des positions
+\emph{connues} dans le repère du mur.}
+\end{subfigure}
+\caption{Anatomie d'un marqueur. Pour chaque coin, on connaît sa position en 3D (sur le mur, ou sur le
+marqueur) et OpenCV donne sa position en pixels dans l'image : c'est cette double information qui permet
+de tout localiser.}
+\label{fig:aruco}
+\end{figure}
+
+\subsection{La détection : \texttt{detect()}}
+
+OpenCV fait tout le travail : l'image est passée en niveaux de gris, les quadrilatères sombres sont repérés,
+leur contenu est lu et comparé au dictionnaire. On active l'\emph{affinage sous-pixel} des coins
+(\code{CORNER_REFINE_SUBPIX}) : la position des coins est alors précise à une fraction de pixel, ce qui
+compte beaucoup pour la précision finale.
+
+\begin{lstlisting}[style=py]
+_params = cv2.aruco.DetectorParameters()
+_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+_detector = cv2.aruco.ArucoDetector(cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50), _params)
+
+def detect(image_rgb) -> dict[int, np.ndarray]:
+    gray = cv2.cvtColor(np.ascontiguousarray(image_rgb), cv2.COLOR_RGB2GRAY)
+    corners, ids, _ = _detector.detectMarkers(gray)
+    if ids is None:
+        return {}
+    return {int(i): c.reshape(4, 2) for i, c in zip(ids.ravel(), corners)}
+\end{lstlisting}
+
+Le résultat est un dictionnaire \code{{ID: coins}}, par exemple \code{{1: ..., 2: ..., 3: ..., 4: ..., 5: ...}},
+chaque entrée contenant les 4 coins ($4\times2$ pixels) dans l'ordre de la figure~\ref{fig:aruco}.
+
+Les positions 3D des coins des marqueurs du mur sont calculées par \code{wall_marker_corners(id)} à partir des
+dimensions du règlement (fonction \code{aruco.corner_plate_origin} du simulateur). La face avant des plaques
+est à $z = 1$~mm du mur dans le simulateur (plaques de 1~mm d'épaisseur) : constante \code{PLATE_Z}.
+
+% =========================================================================================================
+\section{Étape 1 --- Où sont les caméras ?}
+\label{sec:cameras}
+
+\subsection{Le modèle de la caméra}
+
+Une caméra (modèle « sténopé », celui d'OpenCV) transforme un point 3D en pixel en deux temps :
+
+\begin{enumerate}
+  \item \textbf{les extrinsèques} $(R, t)$ --- où est la caméra et où elle regarde --- font passer le point du
+        repère du mur au repère de la caméra : $P_C = R\,P_W + t$ ;
+  \item \textbf{les intrinsèques} $K$ --- propres à la caméra (focale $f_x, f_y$ et centre optique $c_x, c_y$
+        en pixels) --- le projettent sur l'image :
+\[
+  \begin{pmatrix} u \\ v \\ 1 \end{pmatrix} \propto K\,P_C,
+  \qquad
+  K = \begin{pmatrix} f_x & 0 & c_x \\ 0 & f_y & c_y \\ 0 & 0 & 1 \end{pmatrix}.
+\]
+\end{enumerate}
+
+Les intrinsèques se mesurent une fois pour toutes (calibration de la caméra, ou valeurs du fabricant). Les
+extrinsèques changent dès qu'on bouge la caméra : ce sont elles qu'on cherche.
+
+\subsection{Le problème PnP}
+
+On connaît $n$ points 3D $P_i$ (les coins des marqueurs du mur) et leurs pixels $p_i$ dans l'image (donnés par
+\code{detect()}). Trouver la pose $(R,t)$ de la caméra qui explique ces pixels s'appelle le problème
+\textbf{PnP} (\emph{Perspective-n-Point}) :
+\[
+  (R, t) = \arg\min_{R,t} \sum_{i=1}^{n} \bigl\| \pi\bigl(K (R P_i + t)\bigr) - p_i \bigr\|^2
+\]
+où $\pi$ divise par la troisième coordonnée. Avec les 4 marqueurs, on a $n = 16$ coins, répartis aux quatre
+coins du mur : c'est très contraint, donc très précis.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\small]
+  \fill[wallc] (4.2,-1.4) -- (7.6,-0.8) -- (7.6,2.8) -- (4.2,2.2) -- cycle;
+  \node[font=\footnotesize, brown!50!black] at (6.9,2.35) {mur};
+  \coordinate (C) at (0,0.6);
+  \foreach \n/\P in {1/{(4.9,1.75)}, 2/{(7.1,2.1)}, 3/{(4.9,-0.7)}, 4/{(7.1,-0.3)}}{
+    \coordinate (P\n) at \P;
+    \fill[black] \P ++(-0.15,-0.15) rectangle ++(0.3,0.3);}
+  \fill[gray!25, opacity=0.9, draw=gray] (1.5,-0.25) -- (1.9,-0.1) -- (1.9,1.45) -- (1.5,1.3) -- cycle;
+  \node[font=\footnotesize, gray!40!black] at (1.7,1.75) {image};
+  \foreach \n/\t in {1/0.336, 2/0.257, 3/0.336, 4/0.257}{
+    \draw[orange!80!black, densely dashed] (C) -- (P\n);
+    \fill[red] ($(C)!\t!(P\n)$) circle (1.6pt);}
+  \fill[black] (C) circle (2pt) node[left] {$C$};
+  \node[align=center, font=\footnotesize] at (0,-0.4) {centre optique\\ (inconnu)};
+  \node[red, font=\footnotesize, align=center] at (2.2,-0.75) {$p_i$ : pixels\\détectés};
+  \node[font=\footnotesize, align=center] at (6.0,0.7) {$P_i$ : coins des\\marqueurs, connus};
+  \draw[ax, axz] (C) -- ++(0.9,0.12) node[above, font=\footnotesize] {$z_C$};
+\end{tikzpicture}
+\caption{Le problème PnP : on connaît les points du mur ($P_i$) et l'endroit où ils tombent dans l'image
+($p_i$) ; on cherche la position et l'orientation de la caméra qui alignent chaque rayon.}
+\end{figure}
+
+\subsection{Le code : \texttt{camera\_pose()}}
+
+\begin{lstlisting}[style=py]
+def camera_pose(markers: dict, K, dist=None):
+    ids = [i for i in WALL_IDS if i in markers]           # les marqueurs 1-4 vus
+    if not ids:
+        return None
+    obj = np.concatenate([wall_marker_corners(i) for i in ids])  # points 3D (repere mur)
+    img = np.concatenate([markers[i] for i in ids]).astype(np.float64)  # pixels
+    ...
+    _, rvec, tvec = cv2.solvePnP(obj, img, K, dist, flags=cv2.SOLVEPNP_IPPE)
+    rvec, tvec = cv2.solvePnPRefineLM(obj, img, K, dist, rvec, tvec)
+    proj, _ = cv2.projectPoints(obj, rvec, tvec, K, dist)
+    rms = float(np.sqrt(np.mean(np.sum((proj.reshape(-1, 2) - img) ** 2, axis=1))))
+    return rvec.ravel(), tvec.ravel(), rms
+\end{lstlisting}
+
+\begin{itemize}
+  \item \code{SOLVEPNP_IPPE} est une méthode exacte pour des points tous dans un même plan (ici le mur) ; elle
+        donne une première solution.
+  \item \code{solvePnPRefineLM} l'affine par moindres carrés (Levenberg--Marquardt).
+  \item \code{rvec} est la rotation $R$ sous forme compacte (axe × angle, convertie par \code{cv2.Rodrigues}).
+  \item \code{rms} est l'\textbf{erreur de reprojection} : on reprojette les 16 coins avec la pose trouvée et on
+        mesure l'écart moyen avec les pixels détectés. Autour de 0,4~pixel : la pose explique très bien l'image.
+        Plusieurs pixels : problème (mauvaises intrinsèques, marqueur mal détecté\ldots).
+  \item La position de la caméra dans le repère du mur s'en déduit : $C = -R^\top t$.
+\end{itemize}
+
+\begin{retenir}
+Le code n'a besoin de connaître \emph{que} les intrinsèques des caméras. Leur position est retrouvée à
+chaque essai à partir des marqueurs du mur : les organisateurs peuvent placer les caméras où ils veulent,
+tant que chacune voit les quatre coins.
+\end{retenir}
+
+% =========================================================================================================
+\section{Étape 2 --- Le marqueur ID 5 sur le robot}
+\label{sec:marqueur}
+
+\subsection{Où le mettre et quelle taille ?}
+
+Quand le robot grimpe, il fait face au mur : les caméras voient donc son \textbf{dos}. Le marqueur va sur le
+dos du tronc, la partie la plus stable du robot (les bras et les jambes bougent sans arrêt).
+
+Le dos du tronc a été mesuré dans le modèle du simulateur en lançant des rayons vers lui (fonction
+\code{mj_ray} de MuJoCo) : il est \textbf{plat à 33~mm derrière l'origine du tronc}, sur environ 70~mm de
+large et de $z = 0$ à $z = 100$~mm ; une poignée dépasse jusqu'à 44~mm. La plaque est donc placée
+\textbf{à 48~mm}, juste derrière la poignée.
+
+\begin{itemize}
+  \item plaque de \textbf{100~×~100~mm} : code noir de \textbf{80~mm} + bordure blanche de 10~mm ;
+  \item centre du code à 50~mm au-dessus de l'origine du tronc, au milieu du dos ;
+  \item dans le simulateur, la plaque est purement visuelle : pas de collision, pas de masse.
+\end{itemize}
+
+Plus le marqueur est grand, plus il couvre de pixels et plus la mesure est précise. Vu à 2,4~m par une D435i
+en 1280~×~720, le code de 80~mm fait environ 30~pixels de côté (5~pixels par case) : c'est suffisant, et c'est
+à peu près le maximum que permet la largeur du dos.
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{0.52\textwidth}
+\centering
+\begin{tikzpicture}[x=0.33mm, y=0.33mm, font=\footnotesize]
+  % mur et prise
+  \fill[wallc] (115,-30) rectangle (126,175);
+  \node[rotate=90, font=\scriptsize, brown!50!black] at (120.5,70) {mur};
+  \fill[orange!80!red] (89,150) arc (180:360:13) -- (115,160) -- (115,150) -- cycle;
+  % tronc, poignée, tête (proportions approximatives)
+  \fill[gray!30, draw=gray!50!black, rounded corners=2pt] (-33,0) rectangle (28,112);
+  \fill[gray!45, draw=gray!50!black] (-44,90) rectangle (-33,104);
+  \fill[gray!30, draw=gray!50!black, rounded corners=3pt] (-22,120) rectangle (22,160);
+  % plaque
+  \fill[black] (-49,0) rectangle (-47,100);
+  \fill[black] (0,0) circle (1.8);
+  % repère du tronc
+  \draw[ax, axx] (0,0) -- (42,0) node[right] {$x_T$ (vers le mur)};
+  \draw[ax, axz] (0,0) -- (0,40) node[above right=-2pt] {$z_T$};
+  % repère du marqueur
+  \draw[ax, axz] (-48,50) -- (-76,50) node[above left=-1pt] {$z_M$};
+  \draw[ax, axy] (-48,50) -- (-48,80) node[left] {$y_M$};
+  % cotes
+  \draw[<->] (-33,-14) -- (0,-14) node[midway, below] {33};
+  \draw[<->] (-48,-30) -- (0,-30) node[midway, below] {48};
+  \draw[<->] (-100,0) -- (-100,100) node[midway, left] {100};
+  \draw[gray] (-102,0) -- (-49,0) (-102,100) -- (-49,100);
+  \draw[arr] (-60,150) -- (-105,150) node[midway, above, align=center, font=\scriptsize] {vers les caméras\\($\approx$ 2,4 m)};
+  \node[font=\scriptsize, align=center] at (-5,60) {tronc};
+  \node[font=\scriptsize] at (0,140) {tête};
+  \node[font=\scriptsize] (pg) at (-62,118) {poignée};
+  \draw[gray] (pg.south east) -- (-40,103);
+\end{tikzpicture}
+\caption{Vue de côté (mm, proportions approximatives) : la plaque à 48~mm derrière l'origine du tronc.}
+\end{subfigure}\hfill
+\begin{subfigure}[b]{0.22\textwidth}
+\centering
+\includegraphics[width=\textwidth]{img/robot_back.png}
+\caption{Vu de dos.}
+\end{subfigure}\hfill
+\begin{subfigure}[b]{0.22\textwidth}
+\centering
+\includegraphics[width=\textwidth]{img/robot_side.png}
+\caption{Vu de côté.}
+\end{subfigure}
+\caption{Le marqueur ID~5 sur le dos du robot, dans le simulateur.}
+\label{fig:marqueur-robot}
+\end{figure}
+
+\subsection{Le repère du marqueur dans le repère du tronc}
+
+Pour passer de la pose du marqueur à la pose du robot, il faut savoir exactement comment le marqueur est fixé
+sur le tronc. Vu de derrière le robot (comme le voient les caméras) :
+\begin{itemize}
+  \item l'axe $x_M$ du marqueur (vers la droite de l'image) est la \emph{droite} du robot, soit $-y_T$ ;
+  \item l'axe $y_M$ (vers le haut du marqueur) est le haut du robot, soit $+z_T$ ;
+  \item l'axe $z_M$ (qui sort du marqueur vers la caméra) va vers l'arrière du robot, soit $-x_T$.
+\end{itemize}
+Ces trois vecteurs sont les colonnes de la matrice \code{R_TRUNK_MARKER}, et la position du centre du code
+est \code{P_TRUNK_MARKER} :
+\[
+  R_{TM} = \begin{pmatrix} 0 & 0 & -1 \\ -1 & 0 & 0 \\ 0 & 1 & 0 \end{pmatrix},
+  \qquad
+  t_{TM} = \begin{pmatrix} -48 \\ 0 \\ 50 \end{pmatrix}\text{ mm}.
+\]
+
+\begin{attention}[Sur le vrai robot]
+Ces deux valeurs doivent être \textbf{mesurées sur le vrai robot} une fois le marqueur collé, et reportées
+dans \code{robot_marker.py}. Une erreur de 5~mm sur \code{P_TRUNK_MARKER} donne directement 5~mm d'erreur
+sur la position du robot, quelle que soit la qualité des caméras. Idem pour la taille du code
+(\code{CODE = 0.080}) : mesure-la sur l'impression.
+\end{attention}
+
+\subsection{L'ajout au simulateur : \texttt{MarkedSim}}
+
+Le simulateur construit sa scène MuJoCo avec \code{build_spec()}. La fonction \code{add_robot_marker(spec)}
+ajoute au corps \code{trunk} une boîte très fine (1~mm) dont la face extérieure porte l'image du marqueur
+(texture générée par OpenCV avec \code{cv2.aruco.generateImageMarker}). La boîte est orientée par
+$R_{TM}$, pour que l'image apparaisse à l'endroit vue de derrière.
+
+\begin{lstlisting}[style=py]
+class MarkedSim(ClimbingSim):
+    """ClimbingSim with the robot's marker ID 5 on its back (same arguments)."""
+    def __init__(self, *args, **kwargs):
+        _sim_module.build_spec = lambda **kw: add_robot_marker(build_spec(**kw))
+        try:
+            super().__init__(*args, **kwargs)
+        finally:
+            _sim_module.build_spec = build_spec
+\end{lstlisting}
+
+\code{MarkedSim} s'utilise exactement comme \code{ClimbingSim} (\code{MarkedSim("N1")},
+\code{reset_hanging()}, \code{step()}, \code{render()}\ldots). Pendant sa construction, il remplace
+temporairement la fonction qui fabrique la scène par une version qui ajoute le marqueur, puis remet
+l'originale. Le dépôt du simulateur n'est pas modifié.
+
+La fonction \code{marker_image()} rend l'image du marqueur avec sa bordure : c'est elle qu'il faudra
+imprimer pour le vrai robot, à 100~×~100~mm.
+
+% =========================================================================================================
+\section{Étape 3 --- Où est le robot ?}
+\label{sec:robot}
+
+\subsection{La chaîne des repères}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\small, fr/.style={draw=accent, fill=accent!8, rounded corners=3pt, minimum width=22mm,
+                    minimum height=11mm, align=center}]
+  \node[fr] (W) {Mur\\$\mathcal{W}$};
+  \node[fr, right=21mm of W] (C) {Caméra\\$\mathcal{C}$};
+  \node[fr, right=21mm of C] (M) {Marqueur\\$\mathcal{M}$};
+  \node[fr, right=21mm of M] (T) {Tronc\\$\mathcal{T}$};
+  \node[fr, below=14mm of W] (S) {Monde\\MuJoCo};
+  \draw[arr] (W) -- node[above, font=\footnotesize]{$R_{CW}, t_{CW}$} node[below, font=\scriptsize, align=center]{étape 1\\marqueurs 1--4} (C);
+  \draw[arr] (C) -- node[above, font=\footnotesize]{détection} node[below, font=\scriptsize, align=center]{coins du\\marqueur 5} (M);
+  \draw[arr] (M) -- node[above, font=\footnotesize]{$R_{TM}, t_{TM}$} node[below, font=\scriptsize, align=center]{fixe,\\mesuré} (T);
+  \draw[arr] (W) -- node[left, font=\footnotesize]{rotation fixe} (S);
+  \draw[arr, accent, very thick] (W.south east) to[out=-25, in=-155] node[below, font=\footnotesize, text=accent]
+     {résultat : $R_{WT},\ t_{WT}$ (\code{robot_pose})} (T.south west);
+\end{tikzpicture}
+\caption{Pour connaître la pose du tronc dans le repère du mur, on enchaîne : mur $\to$ caméra (étape 1),
+caméra $\to$ marqueur (détection), marqueur $\to$ tronc (fixation mesurée).}
+\label{fig:chaine}
+\end{figure}
+
+\subsection{Avec deux caméras : la triangulation}
+
+Chaque caméra calibrée transforme un pixel en un \emph{rayon} dans l'espace : le coin du marqueur est
+quelque part sur ce rayon, mais une seule caméra ne dit pas à quelle distance. Avec deux caméras, le coin est
+à l'\textbf{intersection des deux rayons}. C'est la triangulation (\code{cv2.triangulatePoints}, méthode
+linéaire DLT), appliquée à chacun des 4 coins du marqueur ID~5.
+
+On obtient 4 points 3D dans le repère du mur. On connaît aussi la forme du marqueur (un carré de 80~mm,
+\code{square_corners(0.08)}). Il reste à trouver la rotation et la translation qui superposent au mieux le
+carré théorique sur les 4 points mesurés : c'est l'\textbf{algorithme de Kabsch} (\code{_rigid_fit}), qui
+résout ce problème exactement avec une décomposition en valeurs singulières :
+\[
+  H = \sum_i (a_i - \bar a)(b_i - \bar b)^\top = U \Sigma V^\top,
+  \qquad
+  R = V \,\mathrm{diag}\bigl(1, 1, \det(V U^\top)\bigr)\, U^\top,
+  \qquad
+  t = \bar b - R\,\bar a,
+\]
+où $a_i$ sont les coins du carré théorique et $b_i$ les coins triangulés. Le $\det$ garantit une vraie
+rotation (pas un miroir).
+
+\subsection{Avec une seule caméra}
+
+Si une seule caméra voit le marqueur (l'autre est masquée par un bras, par exemple), \code{marker_pose}
+résout un petit PnP sur les 4 coins du marqueur seul (\code{SOLVEPNP_IPPE_SQUARE}), puis le ramène dans le
+repère du mur avec la pose de la caméra. Ça marche, mais c'est \textbf{beaucoup moins précis en profondeur}.
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{0.45\textwidth}
+\centering
+\begin{tikzpicture}[font=\footnotesize, scale=0.95]
+  \fill[wallc] (-2.2,4.3) rectangle (2.2,4.55);
+  \node[brown!50!black] at (0,4.75) {mur (vue de dessus)};
+  \fill[black] (0,0) ++(-0.2,-0.12) rectangle ++(0.4,0.24);
+  \node[below=2pt] at (0,-0.12) {caméra};
+  \draw[orange!80!black] (0,0) -- (-0.11,4.1) (0,0) -- (0.11,4.1);
+  \fill[okgreen!35, draw=okgreen] (0,3.9) ellipse (0.13 and 0.62);
+  \fill[black] (-0.12,3.9) rectangle (0.12,3.94);
+  \node[align=left, anchor=west] at (0.4,3.6) {incertitude\\$\approx$ 2 cm en\\profondeur};
+  \draw[<->] (-1.5,0) -- (-1.5,3.9) node[midway, left] {$Z \approx 2{,}4$ m};
+\end{tikzpicture}
+\caption{Une caméra : la distance vient de la \emph{taille apparente} du marqueur (environ 30~pixels),
+mesure peu précise.}
+\end{subfigure}\hfill
+\begin{subfigure}[b]{0.5\textwidth}
+\centering
+\begin{tikzpicture}[font=\footnotesize, scale=0.95]
+  \fill[wallc] (-2.4,4.3) rectangle (2.4,4.55);
+  \node[brown!50!black] at (0,4.75) {mur (vue de dessus)};
+  \foreach \cx in {-1.6,1.6}{
+    \fill[black] (\cx,0) ++(-0.2,-0.12) rectangle ++(0.4,0.24);
+    \draw[orange!80!black] (\cx,0) -- ($(\cx,0)!1.05!(-0.035,3.9)$) (\cx,0) -- ($(\cx,0)!1.05!(0.035,3.9)$);}
+  \fill[okgreen!35, draw=okgreen] (0,3.9) ellipse (0.06 and 0.1);
+  \node[below=2pt] at (-1.6,-0.12) {gauche};
+  \node[below=2pt] at (1.6,-0.12) {droite};
+  \draw[<->] (-1.6,-0.65) -- (1.6,-0.65) node[midway, below] {$B \approx 1{,}1$ m};
+  \node[align=left, anchor=west] at (0.35,3.55) {incertitude\\$\approx$ 2 mm};
+\end{tikzpicture}
+\caption{Deux caméras : la position est à l'intersection des rayons ; l'écart $B$ entre les caméras rend la
+mesure de profondeur précise.}
+\end{subfigure}
+\caption{Pourquoi deux caméras valent beaucoup mieux qu'une.}
+\label{fig:triangulation}
+\end{figure}
+
+\paragraph{Un calcul d'ordre de grandeur.} Avec une focale $f \approx 924$~pixels, un marqueur de
+$L = 80$~mm à $Z \approx 2{,}4$~m fait $s = fL/Z \approx 30$~pixels. Une erreur $\delta s$ sur sa taille
+apparente donne une erreur de profondeur
+\[
+  \delta Z_{\text{1 caméra}} \approx \frac{Z^2}{f\,L}\,\delta s \approx \frac{2{,}4^2}{924 \times 0{,}08}
+  \times 0{,}25 \approx 2~\text{cm}
+  \qquad\text{(pour } \delta s \approx 0{,}25 \text{ pixel)}.
+\]
+Avec deux caméras écartées de $B \approx 1{,}1$~m, c'est l'écartement $B$ qui remplace la taille du marqueur :
+\[
+  \delta Z_{\text{2 caméras}} \approx \frac{Z^2}{f\,B}\,\delta d \approx \frac{2{,}4^2}{924 \times 1{,}1}
+  \times 0{,}25 \approx 1{,}5~\text{mm}.
+\]
+C'est exactement ce que montrent les tests (section~\ref{sec:resultats}) : environ 2~cm avec une caméra,
+environ 2~mm avec deux. Et c'est pourquoi les caméras les plus rapprochées donnent les moins bons résultats.
+
+\subsection{Du marqueur au tronc : \texttt{robot\_pose()}}
+
+La triangulation donne la pose du marqueur dans le repère du mur, $(R_{WM}, t_{WM})$. Le marqueur étant fixé
+sur le tronc par $(R_{TM}, t_{TM})$, on inverse cette fixation :
+\[
+  R_{WT} = R_{WM}\,R_{TM}^\top,
+  \qquad
+  t_{WT} = t_{WM} - R_{WT}\,t_{TM}.
+\]
+
+\begin{lstlisting}[style=py]
+def robot_pose(views: list, size: float, R_trunk_marker, p_trunk_marker):
+    pose = marker_pose(views, size)        # le marqueur dans le repere du mur
+    if pose is None:
+        return None
+    R_wm, t_wm = pose
+    R = R_wm @ np.asarray(R_trunk_marker, float).T
+    return R, t_wm - R @ np.asarray(p_trunk_marker, float)
+\end{lstlisting}
+
+Enfin \code{to_world(R, p)} convertit cette pose dans le repère du simulateur, pour la comparer à la vérité
+(\code{sim.trunk_pose()}) ou pour la donner au programme de grimpe.
+
+\subsection{Tout ensemble : la classe \texttt{Tracker}}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=7mm and 8mm]
+  \node[box=gray] (imgL) {image caméra gauche};
+  \node[box=gray, right=of imgL] (imgR) {image caméra droite};
+  \node[box=accent, below=of $(imgL)!0.5!(imgR)$] (det) {\code{detect()}\\\footnotesize marqueurs et coins};
+  \node[box=orange, below=10mm of det, xshift=-24mm] (cam) {\code{camera_pose()}\\\footnotesize IDs 1--4 $\to$ pose des caméras};
+  \node[box=okgreen, below=10mm of det, xshift=24mm] (m5) {coins du marqueur ID~5\\\footnotesize dans chaque image};
+  \node[box=okgreen, below=of m5] (tri) {\code{marker_pose()}\\\footnotesize triangulation + Kabsch};
+  \node[box=okgreen, below=of tri] (rp) {\code{robot_pose()}\\\footnotesize pose du tronc (mur)};
+  \node[box=purple, below=of rp] (tw) {\code{to_world()}\\\footnotesize repère du simulateur};
+  \node[box=gray, below=of tw, dashed] (plan) {programme de grimpe\\\footnotesize (à venir)};
+  \draw[arr] (imgL) -- (det);
+  \draw[arr] (imgR) -- (det);
+  \draw[arr] (det) -- (cam);
+  \draw[arr] (det) -- (m5);
+  \draw[arr] (cam.east) -- ++(4mm,0) |- (tri.west);
+  \draw[arr] (m5) -- (tri);
+  \draw[arr] (tri) -- (rp);
+  \draw[arr] (rp) -- (tw);
+  \draw[arr, dashed] (tw) -- (plan);
+  \begin{scope}[on background layer]
+    \node[fit=(cam), fill=orange!6, draw=orange!60, rounded corners, inner sep=3mm,
+          label={[font=\footnotesize\sffamily, text=orange!70!black, align=center]below:\code{calibrate()}\\une fois par essai}] {};
+    \node[fit=(m5)(tri)(rp), fill=okgreen!5, draw=okgreen!60, rounded corners, inner sep=3mm,
+          label={[font=\footnotesize\sffamily, text=okgreen, align=center]right:\code{update()}\\à chaque\\image}] {};
+  \end{scope}
+\end{tikzpicture}
+\caption{Le traitement complet. La calibration des caméras (orange) se fait une fois au début de chaque essai ;
+le suivi du robot (vert) à chaque nouvelle image, en utilisant la pose des caméras trouvée par la calibration.}
+\label{fig:pipeline}
+\end{figure}
+
+\begin{lstlisting}[style=py]
+from perception import Tracker, to_world
+from robot_marker import CODE, R_TRUNK_MARKER, P_TRUNK_MARKER
+
+tracker = Tracker({"cam_left": K_gauche, "cam_right": K_droite},   # intrinseques
+                  CODE, R_TRUNK_MARKER, P_TRUNK_MARKER)
+tracker.calibrate({"cam_left": img_g, "cam_right": img_d})   # debut d'essai
+pose = tracker.update({"cam_left": img_g, "cam_right": img_d})  # a chaque image
+if pose is not None:
+    R, p = pose                    # tronc dans le repere du mur (p en metres)
+    R_monde, p_monde = to_world(R, p)
+\end{lstlisting}
+
+% =========================================================================================================
+\section{Les programmes et leurs commandes}
+
+Toutes les commandes se lancent depuis \code{~/Desktop/Hackathon/simulator} (pour que \code{uv} utilise
+l'environnement du simulateur), avec \code{--with opencv-contrib-python} pour ajouter OpenCV.
+
+\subsection{\texttt{demo.py} --- la démonstration dans le simulateur}
+
+\begin{lstlisting}[style=sh]
+uv run --with opencv-contrib-python python ../perception/demo.py [N1|N2|N3] [--shuffle SEED]
+\end{lstlisting}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\textwidth}{l X}
+\toprule
+Option & Effet \\
+\midrule
+\code{N1}, \code{N2}, \code{N3} & le mur (niveaux de difficulté 1 à 3 du règlement) ; \code{N1} par défaut \\
+\code{--shuffle SEED} & place les deux caméras au hasard devant le mur : entre 1,9 et 3~m du mur, entre
+0,5 et 1,4~m de haut, une de chaque côté, visée près du centre ; un placement est retiré tant qu'une caméra
+ne voit pas les quatre coins. \code{SEED} (un nombre entier) choisit le tirage : le même nombre redonne le même
+placement. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\paragraph{Ce que fait le script.}
+\begin{enumerate}
+  \item Il crée la simulation avec le marqueur (\code{MarkedSim}) et accroche le robot à ses quatre prises de
+        départ (\code{reset_hanging}).
+  \item \textbf{Étape 1} : il prend une image de chaque caméra, calibre les caméras (\code{tracker.calibrate}) et
+        compare la pose trouvée à la vraie pose des caméras du simulateur.
+  \item \textbf{Étape 2} : pendant 3~secondes simulées, il fait se balancer le robot (le tronc oscille de
+        ±30~mm de côté et ±15~mm en hauteur, les quatre mains et pieds restant dans leurs prises). Toutes les
+        0,3~s il prend les deux images, calcule la pose du tronc (\code{tracker.update}) et la compare à la vraie.
+  \item Il enregistre dans \code{perception/out/} les images annotées (\code{cam_left.png},
+        \code{cam_right.png}) et les images brutes, telles que les caméras les voient (\code{cam_left_raw.png},
+        \code{cam_right_raw.png}).
+\end{enumerate}
+
+\textbf{Lire la sortie.} Voici ce qu'affiche la démo sur le mur N1 avec les caméras par défaut :
+
+\begin{figure}[H]
+\begin{lstlisting}[style=out]
+cam_left at x -0.15 m, 0.90 m high, 2.40 m from the wall
+cam_right at x +0.95 m, 0.90 m high, 2.40 m from the wall
+wall N1: camera poses from the wall markers (ground truth: the simulator's cameras)
+  cam_left: markers [1, 2, 3, 4, 5], reprojection 0.38 px, position error 1.6 mm, angle error 0.033 deg
+  cam_right: markers [1, 2, 3, 4, 5], reprojection 0.38 px, position error 2.3 mm, angle error 0.008 deg
+trunk pose from marker ID 5 (ground truth: the simulated trunk)
+  t= 1.02 s: trunk at [ 388 -117  171] mm (true [ 385 -115  172]), error   3.2 mm 3.44 deg, seen by [...]
+  ...
+mean error 1.6 mm (max 3.2), 1.53 deg (max 3.44) over 11 frames
+annotated images: /Users/.../Hackathon/perception/out
+\end{lstlisting}
+\end{figure}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\textwidth}{>{\raggedright}p{4.2cm} X}
+\toprule
+Ligne & Signification \\
+\midrule
+\code{cam_left at x ...} & où le simulateur a placé la caméra (la vérité, que le code ne connaît pas) \\
+\code{markers [1, 2, 3, 4, 5]} & les marqueurs détectés dans l'image : il faut 1--4 (coins) et 5 (robot) \\
+\code{reprojection 0.38 px} & écart moyen entre les coins détectés et les coins reprojetés : < 1 pixel = bon \\
+\code{position error 1.6 mm} & distance entre la position calculée de la caméra et la vraie \\
+\code{angle error 0.033 deg} & écart d'orientation de la caméra \\
+\code{trunk at [x y z] mm} & position du tronc calculée par les caméras, dans le repère monde \\
+\code{(true [x y z])} & la vraie position dans le simulateur \\
+\code{error 3.2 mm 3.44 deg} & écart de position et d'orientation entre les deux \\
+\code{seen by [...]} & les caméras qui voient le marqueur ID~5 (idéalement les deux) \\
+\code{mean error ...} & le bilan sur toutes les images \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{\texttt{live.py} --- le jour J (vraies caméras ou images)}
+
+\begin{lstlisting}[style=sh]
+# deux cameras USB, gauche puis droite
+uv run --with opencv-contrib-python python ../perception/live.py 0 1
+# avec la calibration des cameras
+uv run --with opencv-contrib-python python ../perception/live.py 0 1 --cameras cams.json
+# sur deux images (photos, ou images du simulateur), sans fenetre
+uv run --with opencv-contrib-python python ../perception/live.py gauche.png droite.png --once
+\end{lstlisting}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\textwidth}{l X}
+\toprule
+Argument & Effet \\
+\midrule
+\code{0 1} (sources) & une ou deux sources, \textbf{la caméra gauche en premier} : un numéro de caméra USB ou un
+fichier image. Une RealSense apparaît comme plusieurs caméras (couleur, infrarouge\ldots) : essayer 0, 1, 2\ldots{}
+jusqu'à voir l'image couleur. \\
+\code{--cameras cams.json} & la calibration de chaque caméra (format de l'éditeur de caméras du simulateur :
+\code{fx}, \code{fy}, \code{cx}, \code{cy}, et facultativement \code{dist}, les coefficients de distorsion
+d'OpenCV). Sans ce fichier : les valeurs théoriques de la D435i (moins précis). \\
+\code{--once} & une seule image par caméra, pas de fenêtre : affiche le résultat et enregistre
+\code{out/live_cam_left.png} et \code{out/live_cam_right.png} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\paragraph{Les touches dans la fenêtre.} \textbf{c} : recalibrer les caméras (à faire au début de chaque
+essai, robot en place) ; \textbf{s} : sauvegarder les images annotées ; \textbf{q} : quitter.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=5mm, font=\small]
+  \node[box=gray] (open) {ouvrir les sources\\\footnotesize caméras USB ou images};
+  \node[box=gray, below=of open] (intr) {intrinsèques\\\footnotesize \code{--cameras} ou D435i};
+  \node[box=orange, below=of intr] (cal) {\code{calibrate()}\\\footnotesize pose des caméras};
+  \node[box=okgreen, below=of cal] (upd) {\code{update()}\\\footnotesize pose du robot};
+  \node[box=accent, below=of upd] (show) {affichage annoté\\\footnotesize + position en mm};
+  \node[box=gray, below=of show] (read) {lire les images suivantes};
+  \node[box=gray, right=14mm of show, text width=30mm] (keys) {touche ?\\\footnotesize c : recalibrer\\s : sauvegarder\\q : quitter};
+  \draw[arr] (open) -- (intr);
+  \draw[arr] (intr) -- (cal);
+  \draw[arr] (cal) -- (upd);
+  \draw[arr] (upd) -- (show);
+  \draw[arr] (show) -- (read);
+  \draw[arr] (show) -- (keys);
+  \draw[arr] (keys) |- node[pos=0.25, right, font=\scriptsize]{c} (cal);
+  \draw[arr] (read.west) -- ++(-8mm,0) |- (upd.west);
+\end{tikzpicture}
+\caption{La boucle de \code{live.py}.}
+\end{figure}
+
+La ligne d'état indique par exemple :
+\begin{lstlisting}[style=out]
+robot: x    385 mm, height    172 mm,   116 mm from the wall, seen by ['cam_left', 'cam_right']
+\end{lstlisting}
+Les positions sont dans le \textbf{repère du mur} : $x$ depuis le bord gauche, hauteur depuis le bas,
+distance au mur (devant).
+
+\subsection{\texttt{doc/make\_figures.py}}
+
+Régénère les images de ce document à partir du simulateur (\code{perception/doc/img/}). Le document se
+compile avec \code{latexmk -xelatex perception_aruco.tex} dans \code{perception/doc/}.
+
+% =========================================================================================================
+\section{Comment tester}
+\label{sec:tester}
+
+\begin{enumerate}
+  \item \textbf{La démonstration de base.}
+\begin{lstlisting}[style=sh]
+cd ~/Desktop/Hackathon/simulator
+uv run --with opencv-contrib-python python ../perception/demo.py N1
+\end{lstlisting}
+  C'est réussi si : chaque caméra voit \code{[1, 2, 3, 4, 5]}, la reprojection est sous 1~pixel, et
+  \code{trunk at} est à quelques millimètres de \code{true}. C'est raté si on voit \code{marker not seen} ou
+  des erreurs de plusieurs centimètres.
+
+  \item \textbf{Les images annotées.}
+\begin{lstlisting}[style=sh]
+open ../perception/out/cam_left.png ../perception/out/cam_right.png
+\end{lstlisting}
+  Chaque marqueur détecté est encadré en vert avec son numéro ; sur le dos du robot, trois flèches dessinent
+  le repère du tronc calculé (rouge vers le mur, vert vers la gauche du robot, bleu vers le haut). Elles
+  doivent être collées au dos du robot.
+
+  \item \textbf{Les autres murs}, puis \textbf{d'autres placements de caméras} :
+\begin{lstlisting}[style=sh]
+uv run --with opencv-contrib-python python ../perception/demo.py N3
+uv run --with opencv-contrib-python python ../perception/demo.py N2 --shuffle 1
+uv run --with opencv-contrib-python python ../perception/demo.py N2 --shuffle 2
+\end{lstlisting}
+
+  \item \textbf{Le script du jour J sur des images} (sans caméra) : la démo a laissé dans \code{out/} les
+  images brutes des deux caméras.
+\begin{lstlisting}[style=sh]
+uv run --with opencv-contrib-python python ../perception/live.py \
+    ../perception/out/cam_left_raw.png ../perception/out/cam_right_raw.png --once
+\end{lstlisting}
+  Le résultat (\code{robot: x ... mm, height ... mm, ... mm from the wall}) doit correspondre à la position
+  du robot au milieu du balancement de la démo.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.49\textwidth]{img/cam_left_annotated.png}\hfill
+\includegraphics[width=0.49\textwidth]{img/cam_right_annotated.png}\\[2mm]
+\includegraphics[height=4.2cm]{img/cam_left_zoom.png}\hspace{1cm}
+\includegraphics[height=4.2cm]{img/cam_right_zoom.png}
+\caption{Les images des deux caméras simulées, annotées (en haut), et un zoom sur le robot (en bas). Les cinq
+marqueurs sont détectés dans chaque image ; le repère du tronc calculé est dessiné sur le dos du robot.}
+\label{fig:annotees}
+\end{figure}
+
+% =========================================================================================================
+\section{Résultats}
+\label{sec:resultats}
+
+Toutes les mesures comparent la sortie du code à la vérité du simulateur. La simulation est déterministe :
+les mêmes commandes redonnent exactement les mêmes chiffres.
+
+\subsection{Pose des caméras (caméras par défaut, mur N1)}
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+Caméra & Marqueurs vus & Reprojection & Erreur de position & Erreur d'angle \\
+\midrule
+gauche & 1, 2, 3, 4, 5 & 0,38 px & 1,6 mm & 0,033° \\
+droite & 1, 2, 3, 4, 5 & 0,38 px & 2,3 mm & 0,008° \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Suivi du robot pendant qu'il se balance}
+
+\begin{center}
+\begin{tabular}{llcccc}
+\toprule
+Mur & Caméras & \multicolumn{2}{c}{Position (mm)} & \multicolumn{2}{c}{Orientation (°)} \\
+    &         & moyenne & max & moyenne & max \\
+\midrule
+N1 & par défaut & 1,6 & 3,2 & 1,53 & 3,44 \\
+N2 & par défaut & 1,2 & 2,5 & 1,02 & 2,32 \\
+N2 & \code{--shuffle 1} & 1,9 & 3,4 & 1,59 & 2,82 \\
+N2 & \code{--shuffle 2} & 2,1 & 3,3 & 1,63 & 3,58 \\
+N2 & \code{--shuffle 3} & 3,3 & 6,0 & 3,04 & 5,20 \\
+N2 & \code{--shuffle 4} & 1,7 & 3,2 & 1,37 & 2,89 \\
+N2 & \code{--shuffle 5} & 1,4 & 2,8 & 1,13 & 2,60 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Pour tous les placements, les deux caméras voient les cinq marqueurs. Le moins bon cas (\code{--shuffle 3}) est
+celui où les deux caméras sont les plus rapprochées (73~cm d'écart) : comme prévu par la
+figure~\ref{fig:triangulation}, la profondeur y est moins bien mesurée. Dans ce tirage, les caméras elles-mêmes
+sont localisées à 5--8~mm près (contre 2~mm par défaut), car elles sont plus loin et voient le mur plus de
+biais.
+
+\subsection{Le robot en haut du mur}
+
+Le robot a été accroché directement plus haut (sans grimper) pour vérifier que le marqueur reste bien vu
+quand les caméras le voient d'en dessous :
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+Mur & Hauteur du tronc & Erreur de position & Erreur d'orientation \\
+\midrule
+N1 & 0,46 m & 0,6 mm & 0,41° \\
+N1 & 1,14 m (haut du mur) & 1,4 mm & 0,82° \\
+N3 & 1,12 m (haut du mur) & 1,7 mm & 1,73° \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Une caméra contre deux (\texttt{live.py} sur des images du mur N3)}
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+ & $x$ (mm) & hauteur (mm) & distance au mur (mm) \\
+\midrule
+Vérité (simulateur) & 385 & 172 & 116 \\
+Deux caméras & 385 & 172 & 116 \\
+Une seule caméra & 381 & 166 & \textbf{95} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Avec une seule caméra, la distance au mur est fausse de 2~cm (c'est la direction de la profondeur pour la
+caméra), comme prévu par le calcul de la section~\ref{sec:robot}.
+
+% =========================================================================================================
+\section{Pour le vrai robot}
+
+\begin{enumerate}
+  \item \textbf{Brancher les deux caméras} en USB sur l'ordinateur de l'équipe. Les organisateurs les placent ;
+        il ne faut pas les déplacer.
+  \item \textbf{Trouver leurs numéros} : lancer \code{live.py 0 1}, puis 1 2, 2 3\ldots{} jusqu'à voir les deux
+        images couleur. \textbf{Seule l'image couleur (RGB) est autorisée} par le règlement.
+  \item \textbf{Calibrer les intrinsèques} de chaque caméra (une fois) : soit lire les valeurs d'usine de la
+        RealSense (\code{rs2_intrinsics}), soit faire une calibration OpenCV avec un damier. Les écrire dans un
+        fichier \code{cams.json} :
+\begin{lstlisting}
+{"cameras": [
+  {"name": "cam_left",  "width": 1280, "height": 720,
+   "fx": 910.2, "fy": 909.8, "cx": 641.3, "cy": 362.0, "dist": [0, 0, 0, 0, 0]},
+  {"name": "cam_right", "width": 1280, "height": 720,
+   "fx": 912.5, "fy": 911.9, "cx": 637.8, "cy": 359.4, "dist": [0, 0, 0, 0, 0]}]}
+\end{lstlisting}
+        (valeurs d'exemple). La clé \code{dist} n'est lue que par \code{live.py} : l'éditeur de caméras du
+        simulateur ne la connaît pas, garde donc un fichier séparé pour lui.
+  \item \textbf{Imprimer le marqueur ID~5} (\code{marker_image()}) à 100~×~100~mm exactement, sur un support
+        \textbf{rigide, plat et mat} (une feuille brillante fait des reflets), et le fixer sur le dos du robot.
+        Vérifier à la règle que le code noir fait bien 80~mm.
+  \item \textbf{Mesurer sa position sur le tronc} et mettre à jour \code{P_TRUNK_MARKER} (et
+        \code{R_TRUNK_MARKER} s'il n'est pas monté comme dans le simulateur).
+  \item \textbf{Vérifier la calibration} avec l'éditeur de caméras du simulateur : y charger une photo de la
+        vraie caméra et les paramètres trouvés ; le mur dessiné par-dessus doit tomber exactement sur le vrai mur.
+\begin{lstlisting}[style=sh]
+uv run climbing-sim-cameras
+\end{lstlisting}
+  \item \textbf{À chaque essai} : robot en place, appuyer sur \textbf{c} pour recalibrer, vérifier que chaque
+        caméra voit \code{[1, 2, 3, 4]} avec une reprojection inférieure à 1~pixel.
+\end{enumerate}
+
+\begin{attention}[Ce qui n'a pas pu être testé]
+La lecture de vraies caméras USB n'a pas été testée : pas de matériel, et la webcam de l'ordinateur n'a pas été
+ouverte. Le premier essai sur place doit vérifier le numéro des caméras, la résolution (1280~×~720) et que
+l'image reçue est bien l'image couleur.
+\end{attention}
+
+% =========================================================================================================
+\section{Limites et prochaines étapes}
+\label{sec:suite}
+
+\subsection{Limites connues}
+
+\begin{itemize}
+  \item \textbf{L'orientation du tronc} est moins précise (1 à 3°, jusqu'à 5° au pire) que sa position :
+        les coins d'un marqueur de 80~mm, localisés au millimètre, laissent une incertitude de l'ordre de
+        $1/40$~rad. Le robot a une centrale inertielle (IMU) qui donne son orientation
+        (\code{obs["quat"]}, \code{obs["gravity"]}) beaucoup mieux : utiliser l'IMU pour l'orientation et le
+        marqueur pour la position.
+  \item \textbf{Occultation} : si un bras passe devant le marqueur dans une caméra, le code bascule sur
+        l'autre caméra (précision réduite à quelques centimètres en profondeur) ; si les deux sont masquées,
+        \code{update()} renvoie \code{None}. Le programme de grimpe doit le prévoir (garder la dernière pose
+        connue, ou utiliser les angles des moteurs).
+  \item \textbf{Simulateur idéal} : images sans flou, sans bruit, sans distorsion, éclairage parfait. Les
+        vraies images seront moins nettes : la précision réelle sera moins bonne que ces chiffres.
+  \item \textbf{Temps de calcul} : le rendu des images simulées coûte du temps ; sur le vrai matériel, la
+        détection ArUco est rapide (quelques millisecondes par image).
+  \item \textbf{Pénalité} : le mode avec marqueurs multiplie le temps par 1,25. Le mode sans marqueur
+        demanderait de retrouver la pose des caméras et du robot sans aide (plus difficile).
+\end{itemize}
+
+\subsection{Prochaines étapes}
+
+\begin{enumerate}
+  \item \textbf{Détecter les prises} dans les images. Les prises sont collées au mur ($z \approx 0$) : avec la
+        pose des caméras, chaque pixel d'une prise correspond à un point unique du plan du mur. Il suffit
+        ensuite de « coller » ce point sur la grille de trous (pas de 15~mm) pour avoir la position exacte de la
+        prise. La couleur des prises (orange dans le simulateur) rend leur repérage facile.
+  \item \textbf{Écrire le programme de grimpe} : bouger un membre à la fois en gardant les trois autres
+        accrochés, avec la cinématique inverse du simulateur, en s'appuyant sur la position du tronc donnée par
+        le \code{Tracker} et sur la position des prises.
+  \item \textbf{Fusionner} position (caméras) et orientation (IMU) pour une pose du robot fiable à chaque pas de
+        contrôle (20~ms).
+\end{enumerate}
+
+% =========================================================================================================
+\appendix
+\section{Aide-mémoire des commandes}
+
+\begin{lstlisting}[style=sh]
+cd ~/Desktop/Hackathon/simulator          # toujours depuis ce dossier
+
+# demonstration (mur N1, N2 ou N3), cameras par defaut ou au hasard
+uv run --with opencv-contrib-python python ../perception/demo.py N1
+uv run --with opencv-contrib-python python ../perception/demo.py N2 --shuffle 3
+
+# images annotees produites par la demo
+open ../perception/out/cam_left.png ../perception/out/cam_right.png
+
+# le jour J : cameras USB (gauche puis droite), avec ou sans calibration
+uv run --with opencv-contrib-python python ../perception/live.py 0 1
+uv run --with opencv-contrib-python python ../perception/live.py 0 1 --cameras cams.json
+
+# sur des images, sans fenetre (ici les images brutes laissees par la demo)
+uv run --with opencv-contrib-python python ../perception/live.py \
+    ../perception/out/cam_left_raw.png ../perception/out/cam_right_raw.png --once
+
+# verifier la calibration des cameras sur une photo (outil du simulateur)
+uv run climbing-sim-cameras
+
+# regenerer les images de ce document, puis le compiler
+uv run --with opencv-contrib-python python ../perception/doc/make_figures.py
+cd ../perception/doc && latexmk -xelatex perception_aruco.tex
+\end{lstlisting}
+
+\section{Référence des fonctions}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\textwidth}{>{\raggedright}p{5.2cm} X}
+\toprule
+Fonction (fichier) & Rôle \\
+\midrule
+\code{detect(image)} \newline \footnotesize \code{perception.py} & marqueurs d'une image RGB : \code{{ID: 4 coins en pixels}} \\
+\code{wall_marker_corners(id)} & les 4 coins du code d'un marqueur du mur, en 3D (repère mur) \\
+\code{square_corners(size)} & les 4 coins d'un marqueur carré dans son propre repère \\
+\code{camera_pose(markers, K, dist)} & pose d'une caméra à partir des marqueurs 1--4 : \code{(rvec, tvec, rms)} \\
+\code{marker_pose(views, size)} & pose d'un marqueur dans le repère du mur (triangulation, ou PnP avec une caméra) \\
+\code{robot_pose(views, size, R, p)} & pose du tronc dans le repère du mur \\
+\code{to_world(R, p)} & repère du mur $\to$ repère du simulateur \\
+\code{annotate(image, tracker, nom, pose)} & image annotée (marqueurs + repère du tronc) \\
+\code{Tracker} & le tout : \code{calibrate(images)} puis \code{update(images)} \\
+\midrule
+\code{MarkedSim(...)} \newline \footnotesize \code{robot_marker.py} & \code{ClimbingSim} avec le marqueur ID~5 sur le dos \\
+\code{add_robot_marker(spec)} & ajoute la plaque du marqueur à une scène MuJoCo \\
+\code{marker_image()} & image du marqueur ID~5 avec sa bordure (à imprimer) \\
+\code{CODE}, \code{BORDER}, \code{PLATE} & tailles : 80, 10 et 100~mm \\
+\code{R_TRUNK_MARKER}, \code{P_TRUNK_MARKER} & fixation du marqueur sur le tronc (à mesurer sur le vrai robot) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Petit glossaire}
+
+\begin{description}[style=nextline, leftmargin=1.2em, font=\normalfont\bfseries]
+  \item[Pose] position et orientation d'un objet (6 nombres : 3 pour la position, 3 pour la rotation).
+  \item[Intrinsèques] paramètres propres à une caméra (focale, centre de l'image, distorsion) ; ne changent pas
+        quand on la déplace.
+  \item[Extrinsèques] pose de la caméra par rapport au monde (ici, au mur) ; changent dès qu'on la bouge.
+  \item[PnP] (\emph{Perspective-n-Point}) retrouver la pose d'une caméra à partir de points 3D connus et de
+        leurs pixels.
+  \item[Erreur de reprojection] écart, en pixels, entre les points détectés et ceux recalculés avec la pose
+        trouvée ; mesure la qualité d'une calibration.
+  \item[Triangulation] retrouver un point 3D comme l'intersection des rayons de deux caméras.
+  \item[Kabsch] méthode qui trouve la rotation et la translation superposant au mieux deux nuages de points.
+  \item[IPPE] méthode de PnP exacte pour des points dans un même plan (\code{SOLVEPNP_IPPE}), et sa variante pour un
+        marqueur carré seul (\code{SOLVEPNP_IPPE_SQUARE}).
+  \item[IMU] centrale inertielle du robot : gyroscope et accéléromètre, donne son orientation.
+\end{description}
+
+\end{document}
