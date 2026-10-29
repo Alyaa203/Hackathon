@@ -12,10 +12,15 @@ Intrinsics: each camera's calibration from --cameras cams.json (the camera edito
 fx, fy, cx, cy, and optionally "dist", OpenCV's distortion coefficients), else the D435i's nominal values at the
 image size.  The camera poses are not needed: they come from the four wall markers, at the start (key c: again).
 
-The robot's marker: its size and where it is on the trunk are CODE, R_TRUNK_MARKER and P_TRUNK_MARKER in
-robot_marker.py; measure them on your robot.
+The cameras are asked for 1920 x 1080 images (--size): the robot's marker (the organisers' sticker, a 42 mm code)
+is too small at 1280 x 720.  The robot is located only when both cameras see its marker (one camera alone gets the
+depth centimetres wrong).  Its size and place on the trunk are CODE and P_TRUNK_MARKER in robot_marker.py.
 
-Window keys: c recalibrate the cameras, s save the annotated images to out/, q quit.
+The holds are found at the calibration (best with the robot not yet in front of the wall), then every image adds
+to what was seen of them (a hold hidden by the robot counts once it shows).
+
+Window keys: c recalibrate the cameras and find the holds again, h list the holds (and write them to
+out/holds.json, a wall file of the simulator), s save the annotated images to out/, q quit.
 """
 import argparse
 import json
@@ -24,19 +29,20 @@ import pathlib
 import cv2
 import numpy as np
 
-from perception import ROBOT_ID, WALL_IDS, Tracker, annotate, detect
+from perception import WALL_IDS, Tracker, annotate, detect
 from robot_marker import CODE, P_TRUNK_MARKER, R_TRUNK_MARKER
+from climbing_sim import Wall
 from climbing_sim.cameras import D435I_HFOV, d435i_intrinsics
 
 OUT = pathlib.Path(__file__).resolve().parent / "out"
 
 
-def open_source(src: str):
-    """A function returning the source's next RGB image (None when it fails)."""
+def open_source(src: str, size: tuple[int, int]):
+    """A function returning the source's next RGB image (None when it fails); a camera is asked for ``size``."""
     if src.isdigit():
         cap = cv2.VideoCapture(int(src))
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, size[0])
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, size[1])
         if not cap.isOpened():
             raise SystemExit(f"camera {src} does not open")
 
@@ -82,17 +88,35 @@ def calibrate(tracker, images) -> bool:
                   f"{p[1]:.2f} m high, {p[2]:.2f} m from the wall")
         else:
             print(f"{n}: no wall marker seen")
+    tracker.reset_holds()
+    print(f"{len(tracker.find_holds(images))} holds found (h: list them)")
     return len(tracker.extrinsics) == len(images)
+
+
+def report_holds(holds):
+    """Print the holds found and write them to out/holds.json (a wall file of the simulator)."""
+    print(f"{len(holds)} holds, from the bottom up (grid column and row; their socket: x from the wall's left edge,"
+          f" height from its bottom):")
+    for f in holds:
+        x, y, _ = f.socket_wall * 1000
+        print(f"  col {f.hold.col:2d} row {f.hold.row:2d}  {f.color:7s} x {x:4.0f} mm, height {y:5.0f} mm")
+    OUT.mkdir(exist_ok=True)
+    Wall(name="found", holds=[f.hold for f in holds],
+         description="holds found by perception/live.py").to_json(OUT / "holds.json")
+    print(f"written to {OUT / 'holds.json'}")
 
 
 args = argparse.ArgumentParser(description=__doc__.split("\n")[0])
 args.add_argument("sources", nargs="+", help="camera index or image file, left camera first (1 or 2)")
 args.add_argument("--cameras", help="camera file (camera editor's JSON) with each camera's calibration")
 args.add_argument("--once", action="store_true", help="one image per camera, no window: print and save")
+args.add_argument("--size", default="1920x1080",
+                  help="image size asked of the cameras (default 1920x1080: the robot's 42 mm marker needs it)")
 args = args.parse_args()
 
 names = ["cam_left", "cam_right"][:len(args.sources)]
-readers = {n: open_source(s) for n, s in zip(names, args.sources)}
+size = tuple(int(v) for v in args.size.lower().split("x"))
+readers = {n: open_source(s, size) for n, s in zip(names, args.sources)}
 cameras = {}
 if args.cameras:
     cameras = {c["name"]: c for c in json.loads(pathlib.Path(args.cameras).read_text())["cameras"]}
@@ -105,16 +129,19 @@ calibrated = calibrate(tracker, images)
 
 while True:
     pose = tracker.update(images) if tracker.extrinsics else None
-    seen_by = [n for n in names if ROBOT_ID in detect(images[n])]
+    holds = tracker.find_holds(images)
+    seen_by = tracker.seen_by
     if not calibrated:
         status = "cameras not calibrated: show them the four wall markers, then press c"
     elif pose is None:
-        status = "robot: marker not seen" if not seen_by else "robot: seen, but no calibrated camera sees it"
+        status = ("robot: marker not seen" if not seen_by else
+                  f"robot: marker seen by {seen_by[0]} only (both cameras needed: one is centimetres off)")
     else:
         p = pose[1] * 1000
         status = f"robot: x {p[0]:6.0f} mm, height {p[1]:6.0f} mm, {p[2]:5.0f} mm from the wall, seen by {seen_by}"
-    shown = {n: annotate(images[n], tracker, n, pose) for n in names}
+    shown = {n: annotate(images[n], tracker, n, pose, holds) for n in names}
     if args.once:
+        report_holds(holds)
         print(status)
         OUT.mkdir(exist_ok=True)
         for n, img in shown.items():
@@ -123,12 +150,15 @@ while True:
         break
     view = np.hstack([cv2.resize(img, (640, 360)) for img in shown.values()])
     cv2.putText(view, status, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-    cv2.imshow("perception (c: recalibrate, s: save, q: quit)", view)
+    cv2.putText(view, f"holds: {len(holds)}", (10, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 1)
+    cv2.imshow("perception (c: recalibrate, h: holds, s: save, q: quit)", view)
     key = cv2.waitKey(1) & 0xFF
     if key == ord("q"):
         break
     if key == ord("c"):
         calibrated = calibrate(tracker, images)
+    if key == ord("h"):
+        report_holds(holds)
     if key == ord("s"):
         OUT.mkdir(exist_ok=True)
         for n, img in shown.items():

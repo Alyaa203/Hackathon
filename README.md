@@ -16,14 +16,15 @@ Microban qui grimpe un mur instrumenté, évalué en simulation (MuJoCo) et sur 
 
 | Fichier | Rôle |
 |---|---|
-| `perception.py` | Le traitement d'image : détection des marqueurs, pose des caméras (marqueurs 1 à 4 du mur), pose du robot (marqueur 5, triangulation avec les deux caméras). Fonctionne sur des images simulées ou réelles. |
-| `robot_marker.py` | Le marqueur ID 5 sur le dos du robot : ses dimensions, sa position sur le tronc, et son ajout au simulateur (`MarkedSim`). |
-| `demo.py` | Démonstration dans le simulateur, comparée à la vérité du simulateur. |
-| `live.py` | Le jour J : les deux caméras USB (ou des images), position du robot en direct. |
+| `perception.py` | Le traitement d'image : détection des marqueurs, pose des caméras (marqueurs 1 à 4 du mur), pose du robot (marqueur 5, triangulation avec les deux caméras, inclinaison par l'IMU), détection des prises (par leur couleur, calées sur la grille de trous). Fonctionne sur des images simulées ou réelles. |
+| `robot_marker.py` | Le marqueur ID 5 du robot, comme le donne la fiche des organisateurs (code de 42 mm, autocollant à plat sur le dos, centre en (−33, 0, 54,75) mm dans le repère du tronc), et son ajout au simulateur (`MarkedSim`). |
+| `demo.py` | Démonstration dans le simulateur, comparée à la vérité du simulateur, avec une vidéo (`out/demo.mp4`) et une fenêtre en direct (`--show`). |
+| `live.py` | Le jour J : les deux caméras USB (ou des images), en 1920 × 1080 : position du robot et prises en direct. |
 | `doc/` | Le document LaTeX, son PDF et ses images (`make_figures.py` les régénère). |
 
-Résultats dans le simulateur : caméras localisées à environ 2 mm près, robot à 1 à 3 mm près (en moyenne) avec les
-deux caméras.
+Résultats dans le simulateur : caméras localisées à environ 2 mm près ; robot à environ 1 mm près en moyenne
+(4 mm au pire) avec les deux caméras en 1920 × 1080 et l'IMU ; prises toutes trouvées sur le mur vide (N1, N2, N3),
+sans fausse prise. Sur une photo du vrai mur : les 52 prises trouvées, avec leur couleur.
 
 ## Installation
 
@@ -42,11 +43,16 @@ Déjà cloné sans `--recurse-submodules` ? `git submodule update --init` récup
 Toujours depuis `simulator/` (OpenCV est ajouté à la volée par `--with`) :
 
 ```bash
-# démonstration dans le simulateur (mur N1, N2 ou N3)
-uv run --with opencv-contrib-python python ../perception/demo.py N1
-# les caméras placées au hasard (le nombre choisit le placement)
+# démonstration dans le simulateur (mur N1, N2 ou N3), avec une fenêtre ; puis la vidéo
+uv run --with opencv-contrib-python python ../perception/demo.py N2 --show
+open ../perception/out/demo.mp4
+# les caméras placées au hasard (le nombre choisit le placement) ; l'autre résolution
 uv run --with opencv-contrib-python python ../perception/demo.py N2 --shuffle 3
-# le jour J : les deux caméras USB, gauche puis droite (touches : c recalibrer, s sauvegarder, q quitter)
+uv run --with opencv-contrib-python python ../perception/demo.py N2 --res 1280x720
+# les prises trouvées, dans l'éditeur de mur du simulateur
+uv run climbing-sim-wall-editor ../perception/out/holds.json
+# le jour J : les deux caméras USB, gauche puis droite
+# (touches : c recalibrer, h liste des prises -> out/holds.json, s sauvegarder, q quitter)
 uv run --with opencv-contrib-python python ../perception/live.py 0 1
 ```
 
@@ -55,9 +61,11 @@ Sur macOS, la fenêtre 3D de MuJoCo demande `mjpython` au lieu de `python` (`uv 
 ## À faire
 
 - [x] Pose des caméras à partir des 4 marqueurs du mur
-- [x] Pose du robot avec son marqueur ID 5
-- [ ] Détection des prises dans les images
+- [x] Pose du robot avec son marqueur ID 5 (fiche officielle, 42 mm)
+- [x] Détection des prises dans les images
+- [x] Document PDF à jour
 - [ ] Programme de grimpe
+- [ ] Relier l'IMU du vrai robot à `live.py`
 - [ ] Essais avec les vraies caméras et le vrai robot
 
 ## Licence
