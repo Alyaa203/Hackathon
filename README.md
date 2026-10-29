@@ -58,6 +58,10 @@ uv run --with opencv-contrib-python python ../perception/live.py 0 1
 
 Sur macOS, la fenêtre 3D de MuJoCo demande `mjpython` au lieu de `python` (`uv run mjpython examples/view.py`).
 
+## Ajouter un script à la simu :
+dans `microban/src/moves/` créer une classe `NomDeLaClasseMove` (bien avoir `Move` à la fin) et ajouter un shortcut et le nom de la classe (en snake et sans le 'Move' donc ici `nom_de_la_casse`) à la fin de `constants.py`.  
+Ensuite lancer la simu avec `make sim` et dans la fenêtre du simulateur apuyer sur la touche pour lancer le script.
+
 ## À faire
 
 - [x] Pose des caméras à partir des 4 marqueurs du mur

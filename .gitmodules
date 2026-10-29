@@ -1,7 +1,0 @@
-[submodule "simulator"]
-	path = simulator
-	url = https://github.com/rock-climbing-robots/simulator
-[submodule "microban"]
-	path = microban
-	url = https://github.com/Rhoban/microban
-	branch = dev_v2
